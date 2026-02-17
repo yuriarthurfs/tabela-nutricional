@@ -31,10 +31,12 @@ async function callGemini(prompt: string): Promise<string> {
       }),
     });
 
-    if (!response.ok) {
-      console.error('Erro na API do Gemini:', response.statusText);
-      return '0';
-    }
+  if (!response.ok) {
+    const errBody = await response.text();
+    console.error("Gemini error:", response.status, errBody);
+    return "0";
+  }
+
 
     const data: GeminiResponse = await response.json();
     const text = data.candidates[0]?.content?.parts[0]?.text || '0';

@@ -49,7 +49,25 @@ async function callGemini(prompt: string): Promise<string> {
   }
 }
 
+const PURE_SUGAR_TYPES = [
+  'açúcar refinado',
+  'açúcar cristal',
+  'açúcar cristalizado',
+  'açúcar de cana',
+  'açúcar branco',
+  'açúcar mascavo',
+];
+
+function isPureSugar(ingredientName: string): boolean {
+  const normalized = ingredientName.toLowerCase();
+  return PURE_SUGAR_TYPES.some(type => normalized.includes(type));
+}
+
 export async function detectAddedSugars(ingredientName: string, quantityG: number): Promise<number> {
+  if (isPureSugar(ingredientName)) {
+    return quantityG;
+  }
+
   const prompt = `Quantos gramas de açúcares adicionados (açúcar refinado, mel, xarope, etc.) existem em ${quantityG}g de ${ingredientName}?
 Responda APENAS com o número (sem unidade, sem texto adicional).
 Exemplos:
@@ -65,6 +83,10 @@ Exemplos:
 }
 
 export async function detectTotalSugars(ingredientName: string, quantityG: number): Promise<number> {
+  if (isPureSugar(ingredientName)) {
+    return quantityG;
+  }
+
   const prompt = `Quantos gramas de açúcares totais (incluindo açúcares naturais e adicionados) existem em ${quantityG}g de ${ingredientName}?
 Responda APENAS com o número (sem unidade, sem texto adicional).
 Exemplos:

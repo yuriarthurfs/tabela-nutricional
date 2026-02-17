@@ -1,17 +1,21 @@
-import { useState } from 'react';
-import { FileText, ChevronRight, ChevronLeft, Download, Save } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { FileText, ChevronRight, ChevronLeft, Download, Save, LogOut, Plus } from 'lucide-react';
 import { RecipeForm } from './components/RecipeForm';
 import { IngredientSearch, Ingredient } from './components/IngredientSearch';
 import { AddedSugarsForm } from './components/AddedSugarsForm';
 import { NutritionTable } from './components/NutritionTable';
 import { FrontLabel } from './components/FrontLabel';
 import { AllergenManager } from './components/AllergenManager';
+import { AuthForm } from './components/AuthForm';
+import { RecipeDashboard } from './components/RecipeDashboard';
 import { calculateNutrition, computeFrontLabel, NutritionResults } from './lib/nutritionEngine';
 import { inferAllergens } from './lib/allergenMapping';
 import { exportToPDF } from './lib/pdfExporter';
 import { saveRecipe } from './lib/recipeService';
 import { geminiClient } from './lib/geminiClient';
+import { supabase } from './lib/supabase';
 
+type MainView = 'dashboard' | 'create';
 type Step = 'recipe' | 'ingredients' | 'sugars' | 'results';
 
 interface RecipeData {
@@ -25,12 +29,43 @@ interface RecipeData {
 }
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [mainView, setMainView] = useState<MainView>('dashboard');
   const [step, setStep] = useState<Step>('recipe');
   const [recipeData, setRecipeData] = useState<RecipeData | null>(null);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
-  const [, setAddedSugarsG] = useState<number>(0);
+  const [addedSugarsG, setAddedSugarsG] = useState<number>(0);
   const [nutritionResults, setNutritionResults] = useState<NutritionResults | null>(null);
   const [allergensSaved, setAllergensSaved] = useState(false);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setIsAuthenticated(!!session);
+      setLoading(false);
+    };
+
+    checkAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAuthenticated(!!session);
+    });
+
+    return () => subscription?.unsubscribe();
+  }, []);
+
+  const handleAuthSuccess = () => {
+    setIsAuthenticated(true);
+    setMainView('dashboard');
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setIsAuthenticated(false);
+    setMainView('dashboard');
+    handleNewRecipe();
+  };
 
   const handleRecipeSubmit = (data: RecipeData) => {
     setRecipeData(data);
@@ -149,12 +184,8 @@ function App() {
     });
 
     if (result) {
-      setStep('recipe');
-      setRecipeData(null);
-      setIngredients([]);
-      setAddedSugarsG(0);
-      setNutritionResults(null);
-      setAllergensSaved(false);
+      handleNewRecipe();
+      setMainView('dashboard');
     }
   };
 
@@ -167,20 +198,101 @@ function App() {
     setAllergensSaved(false);
   };
 
+  const handleSelectRecipe = () => {
+    // Implementado para visualizar receitas salvas
+  };
+
   const inferredAllergens = inferAllergens(ingredients.map(ing => ing.name));
   const frontLabel = nutritionResults && recipeData
     ? computeFrontLabel(nutritionResults.per100g, recipeData.productType)
     : null;
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-gray-600">Carregando...</p>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <AuthForm onAuthSuccess={handleAuthSuccess} />;
+  }
+
+  if (mainView === 'dashboard') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-green-50">
+        <header className="bg-white shadow-sm border-b border-gray-200">
+          <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <FileText className="w-8 h-8 text-blue-600" />
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">RotulagemBR</h1>
+                  <p className="text-sm text-gray-600">Gerador de Tabela Nutricional e Rotulagem Frontal</p>
+                </div>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition"
+              >
+                <LogOut size={20} />
+                Sair
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+          <div className="mb-8 flex justify-between items-center">
+            <div>
+              <h2 className="text-3xl font-bold text-gray-900">Minhas Receitas</h2>
+              <p className="text-gray-600 mt-1">Gerencie suas receitas e crie novas rotulagens</p>
+            </div>
+            <button
+              onClick={() => {
+                setMainView('create');
+                handleNewRecipe();
+              }}
+              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition flex items-center gap-2 font-medium"
+            >
+              <Plus size={20} />
+              Criar Rotulagem
+            </button>
+          </div>
+
+          <RecipeDashboard onSelectRecipe={handleSelectRecipe} />
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-green-50">
       <header className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
-            <FileText className="w-8 h-8 text-blue-600" />
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">RotulagemBR</h1>
-              <p className="text-sm text-gray-600">Gerador de Tabela Nutricional e Rotulagem Frontal</p>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <FileText className="w-8 h-8 text-blue-600" />
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">RotulagemBR</h1>
+                <p className="text-sm text-gray-600">Gerador de Tabela Nutricional e Rotulagem Frontal</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setMainView('dashboard')}
+                className="text-gray-600 hover:text-gray-900 transition"
+              >
+                Minhas Receitas
+              </button>
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition"
+              >
+                <LogOut size={20} />
+                Sair
+              </button>
             </div>
           </div>
         </div>
@@ -300,10 +412,10 @@ function App() {
                     Salvar Receita
                   </button>
                   <button
-                    onClick={handleNewRecipe}
+                    onClick={() => setMainView('dashboard')}
                     className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition"
                   >
-                    Nova Receita
+                    Dashboard
                   </button>
                 </div>
               </div>

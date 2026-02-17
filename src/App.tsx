@@ -10,6 +10,7 @@ import { calculateNutrition, computeFrontLabel, NutritionResults } from './lib/n
 import { inferAllergens } from './lib/allergenMapping';
 import { exportToPDF } from './lib/pdfExporter';
 import { saveRecipe } from './lib/recipeService';
+import { geminiClient } from './lib/geminiClient';
 
 type Step = 'recipe' | 'ingredients' | 'sugars' | 'results';
 
@@ -52,29 +53,37 @@ function App() {
     setStep('sugars');
   };
 
-  const handleSugarsSubmit = (sugars: number) => {
+  const handleSugarsSubmit = async (sugars: number) => {
     setAddedSugarsG(sugars);
 
     if (!recipeData) return;
 
+    const ingredientsWithSugars = await Promise.all(
+      ingredients.map(async (ing) => {
+        const totalSugars = await geminiClient.detectTotalSugars(ing.name, ing.quantityG);
+
+        return {
+          name: ing.name,
+          quantityG: ing.quantityG,
+          nutrientsPer100g: {
+            energyKcal: ing.nutrients.energia_kcal,
+            energyKj: ing.nutrients.energia_kj,
+            carbohydrates: ing.nutrients.carboidratos_g,
+            totalSugars: (totalSugars / ing.quantityG) * 100,
+            addedSugars: 0,
+            proteins: ing.nutrients.proteina_g,
+            totalFat: ing.nutrients.lipidios_g,
+            saturatedFat: ing.nutrients.gorduras_saturadas_g,
+            transFat: ing.nutrients.gorduras_trans_g,
+            fiber: ing.nutrients.fibra_g,
+            sodium: ing.nutrients.sodio_mg,
+          },
+        };
+      })
+    );
+
     const results = calculateNutrition({
-      ingredients: ingredients.map(ing => ({
-        name: ing.name,
-        quantityG: ing.quantityG,
-        nutrientsPer100g: {
-          energyKcal: ing.nutrients.energia_kcal,
-          energyKj: ing.nutrients.energia_kj,
-          carbohydrates: ing.nutrients.carboidratos_g,
-          totalSugars: 0,
-          addedSugars: 0,
-          proteins: ing.nutrients.proteina_g,
-          totalFat: ing.nutrients.lipidios_g,
-          saturatedFat: ing.nutrients.gorduras_saturadas_g,
-          transFat: ing.nutrients.gorduras_trans_g,
-          fiber: ing.nutrients.fibra_g,
-          sodium: ing.nutrients.sodio_mg,
-        },
-      })),
+      ingredients: ingredientsWithSugars,
       finalYieldG: recipeData.finalYieldG,
       numPortions: recipeData.numPortions,
       addedSugarsG: sugars,

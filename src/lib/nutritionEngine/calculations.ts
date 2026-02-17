@@ -1,6 +1,35 @@
-import { IngredientData, NutrientValues, RecipeData, NutritionResults, FrontLabelResult } from './types';
+import {
+  IngredientData,
+  NutrientValues,
+  RecipeData,
+  NutritionResults,
+  FrontLabelResult,
+} from './types';
 import { VDR_TABLE, FRONT_LABEL_LIMITS } from './constants';
 import { applyZeroRule, formatDisplayValue } from './rounding';
+
+// --- helpers ---
+function normalizeText(s: string): string {
+  return (s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, ''); // remove acentos
+}
+
+/**
+ * Regra de negócio:
+ * açúcar refinado, cristal, mascavo => açúcar total = quantidade em gramas
+ * (e no seu caso também açúcar adicionado = quantidade em gramas)
+ */
+function isPureSugarIngredient(name: string): boolean {
+  const n = normalizeText(name);
+
+  const hasAcucar = n.includes('acucar');
+  const hasType =
+    n.includes('refinado') || n.includes('cristal') || n.includes('mascavo');
+
+  return hasAcucar && hasType;
+}
 
 export function computeTotals(
   ingredients: IngredientData[],
@@ -21,8 +50,30 @@ export function computeTotals(
   for (const ingredient of ingredients) {
     const factor = ingredient.quantityG / 100;
 
-    totals.carbohydrates! += (ingredient.nutrientsPer100g.carbohydrates || 0) * factor;
-    totals.totalSugars! += (ingredient.nutrientsPer100g.totalSugars || 0) * factor;
+    const name = (ingredient as any)?.name ?? ''; // caso IngredientData tenha name
+    const isPureSugar = isPureSugarIngredient(name);
+
+    // --- carboidratos ---
+    // Mantém como está, vindo da tabela do ingrediente
+    totals.carbohydrates! +=
+      (ingredient.nutrientsPer100g.carbohydrates || 0) * factor;
+
+    // --- açúcares totais ---
+    if (isPureSugar) {
+      // REGRA NOVA: açúcar total = quantidade em gramas
+      totals.totalSugars! += ingredient.quantityG;
+
+      /**
+       * OPCIONAL (consistência nutricional):
+       * Se você quiser garantir que carboidratos também reflitam isso quando o banco vier zerado,
+       * descomente a linha abaixo. Eu deixei comentado para não “duplicar” se seu banco já traz carboidratos.
+       */
+      // totals.carbohydrates! += ingredient.quantityG;
+    } else {
+      totals.totalSugars! += (ingredient.nutrientsPer100g.totalSugars || 0) * factor;
+    }
+
+    // --- demais nutrientes ---
     totals.proteins! += (ingredient.nutrientsPer100g.proteins || 0) * factor;
     totals.totalFat! += (ingredient.nutrientsPer100g.totalFat || 0) * factor;
     totals.saturatedFat! += (ingredient.nutrientsPer100g.saturatedFat || 0) * factor;
@@ -34,12 +85,14 @@ export function computeTotals(
   return totals;
 }
 
-export function computeEnergy(nutrients: Partial<NutrientValues>): { kcal: number; kj: number } {
+export function computeEnergy(
+  nutrients: Partial<NutrientValues>
+): { kcal: number; kj: number } {
   const carbs = nutrients.carbohydrates || 0;
   const proteins = nutrients.proteins || 0;
   const fats = nutrients.totalFat || 0;
 
-  const kcal = (carbs * 4) + (proteins * 4) + (fats * 9);
+  const kcal = carbs * 4 + proteins * 4 + fats * 9;
   const kj = kcal * 4.2;
 
   return { kcal, kj };
@@ -111,6 +164,7 @@ export function applyRoundingAndZeroRules(values: NutrientValues): {
   rounded.carbohydrates = applyZeroRule(values.carbohydrates, 'carbohydrates');
   display.carbohydrates = formatDisplayValue(rounded.carbohydrates, 'g');
 
+  // açúcares totais e adicionados: mantém sem "zero rule" (como já estava)
   rounded.totalSugars = values.totalSugars;
   display.totalSugars = formatDisplayValue(rounded.totalSugars, 'g');
 
